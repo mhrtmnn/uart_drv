@@ -1,21 +1,38 @@
-#include <linux/module.h>
-#include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/module.h>
+#include <linux/platform_device.h>
 
 
-static int __init hello_start(void)
+/*******************************************************************************
+* PLATFORM DRV
+*******************************************************************************/
+static int serial_probe(struct platform_device *pdev)
 {
-                printk(KERN_INFO "Hello world\n");
-                return 0;
+	pr_info("Called serial_probe\n");
+	return 0;
 }
-module_init(hello_start);
 
-static void __exit hello_end(void)
+static int serial_remove(struct platform_device *pdev)
 {
-                printk(KERN_INFO "Goodbye Mr.\n");
+	pr_info("Called serial_remove\n");
+        return 0;
 }
-module_exit(hello_end);
 
+/****************************** driver structures *****************************/
+static struct platform_driver serial_driver = {
+        .driver = {
+                .name = "UART driver",
+                .owner = THIS_MODULE,
+        },
+        .probe = serial_probe,
+        .remove = serial_remove,
+};
+
+module_platform_driver(serial_driver);
+
+/*******************************************************************************
+* MODULE INFORMATION
+*******************************************************************************/
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marco Hartmann");
 MODULE_DESCRIPTION("UART driver");
