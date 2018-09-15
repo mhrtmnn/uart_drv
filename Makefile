@@ -15,7 +15,7 @@ modules:
 clean:
 	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions
 
-deploy:
+deploy: modules
 	scp uart_drv.ko root@10.10.0.40:/root
 
 .PHONY: modules clean
