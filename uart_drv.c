@@ -28,6 +28,7 @@ typedef struct _priv_serial_dev_t
  * write to register specified by an addr offset from the UART base address
  *
  * See "19.5.1 UART Registers" in AM335x Technical Reference Manual for offsets
+ * The UART Registers are 16bit wide
  */
 static void reg_write(priv_serial_dev_t *dev, int val, int off)
 {
