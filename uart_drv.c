@@ -59,20 +59,74 @@ static void uart_char_write(priv_serial_dev_t *dev, char c)
 	reg_write(dev, c, UART_TX);
 }
 
+static void uart_str_write(priv_serial_dev_t *dev, char *s)
+{
+	char c;
+
+	while ((c = *s++) != '\0')
+		uart_char_write(dev, c);
+}
+
+static void init_uart(struct platform_device *pdev)
+{
+	unsigned uartclk, baud_divisor;
+	priv_serial_dev_t *priv;
+
+	priv = platform_get_drvdata(pdev);
+
+	/* Setup UART module */
+	of_property_read_u32(pdev->dev.of_node, "clock-frequency", &uartclk); /* input clock to the UART */
+	baud_divisor = uartclk / 16 / UART_BAUD; /* See "4.4.4.2.1 Clock Generation and Control" in AM335x Technical Reference Manual */
+
+	reg_write(priv, 0x07, UART_OMAP_MDR1);            /* set MODESELECT to Disable */
+	reg_write(priv, UART_LCR_DLAB, UART_LCR);         /* set Divisor latch enable (Allows access to DLL and DLH) */
+	reg_write(priv, LO_BYTE(baud_divisor), UART_DLL); /* set CLOCK_LSB */
+	reg_write(priv, HI_BYTE(baud_divisor), UART_DLM); /* set CLOCK_MSB */
+	reg_write(priv, UART_LCR_WLEN8, UART_LCR);        /* set word length to 8bit */
+
+	/* Soft reset */
+	reg_write(priv, UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT, UART_FCR); /* Clears the RX/TX FIFO and resets its counter logic to 0 */
+	reg_write(priv, 0x00, UART_OMAP_MDR1);                                /* MPDESELECT = UART 16x mode */
+
+
+	// DBG
+	uart_str_write(priv, "Hello World, config done!");
+}
+
+static void deinit_uart(struct platform_device *pdev)
+{
+	priv_serial_dev_t *priv;
+
+	priv = platform_get_drvdata(pdev);
+
+	/* set MODESELECT to Disable */
+	reg_write(priv, 0x07, UART_OMAP_MDR1);
+}
+
 /*******************************************************************************
 * PLATFORM PM
 *******************************************************************************/
 int platform_pm_suspend(struct device *dev)
 {
+	struct platform_device *pdev;
+
 	pr_alert("%s called!\n", __func__);
-	// TODO: suspend the UART unit
+
+	pdev = to_platform_device(dev);
+	deinit_uart(pdev);
+
 	return 0;
 }
 
 int platform_pm_resume(struct device *dev)
 {
+	struct platform_device *pdev;
+
 	pr_alert("%s called!\n", __func__);
-	// TODO: resume the UART unit
+
+	pdev = to_platform_device(dev);
+	init_uart(pdev);
+
 	return 0;
 }
 
@@ -88,7 +142,6 @@ int platform_pm_idle(struct device *dev)
 *******************************************************************************/
 static int serial_probe(struct platform_device *pdev)
 {
-	unsigned uartclk, baud_divisor;
 	struct resource *res;
 	priv_serial_dev_t *priv;
 
@@ -117,33 +170,14 @@ static int serial_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->iomem_base))
 		goto remap_err;
 
+	/* save priv data ptr */
+	platform_set_drvdata(pdev, priv);
+
 	/* Power management */
 	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
 	pm_runtime_enable(&pdev->dev);
 	pm_runtime_get_sync(&pdev->dev); /* get reference, resume and sync */
 	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
-
-	/* Setup UART module */
-	of_property_read_u32(pdev->dev.of_node, "clock-frequency", &uartclk); /* input clock to the UART */
-	baud_divisor = uartclk / 16 / UART_BAUD; /* See "4.4.4.2.1 Clock Generation and Control" in AM335x Technical Reference Manual */
-
-	reg_write(priv, 0x07, UART_OMAP_MDR1);            /* set MODESELECT to Disable */
-	reg_write(priv, UART_LCR_DLAB, UART_LCR);         /* set Divisor latch enable (Allows access to DLL and DLH) */
-	reg_write(priv, LO_BYTE(baud_divisor), UART_DLL); /* set CLOCK_LSB */
-	reg_write(priv, HI_BYTE(baud_divisor), UART_DLM); /* set CLOCK_MSB */
-	reg_write(priv, UART_LCR_WLEN8, UART_LCR);        /* set word length to 8bit */
-
-	/* Soft reset */
-	reg_write(priv, UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT, UART_FCR); /* Clears the RX/TX FIFO and resets its counter logic to 0 */
-	reg_write(priv, 0x00, UART_OMAP_MDR1);                                /* MPDESELECT = UART 16x mode */
-
-	/* write test char */
-	uart_char_write(priv, 'H');
-	uart_char_write(priv, 'e');
-	uart_char_write(priv, 'l');
-	uart_char_write(priv, 'l');
-	uart_char_write(priv, 'o');
-
 
 	return 0;
 
