@@ -5,6 +5,8 @@
 #include <linux/of.h>
 #include <linux/pm_runtime.h>
 #include <linux/serial_reg.h>
+#include <linux/miscdevice.h>
+#include <linux/fs.h>
 
 /*******************************************************************************
 * MACROS/DEFINES
@@ -19,6 +21,7 @@
 typedef struct _priv_serial_dev_t
 {
 	void __iomem *iomem_base; /* virtual addr of the memory mapped io region */
+	struct miscdevice miscdev;
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -104,6 +107,23 @@ static void deinit_uart(struct platform_device *pdev)
 }
 
 /*******************************************************************************
+* MISC DEVICE DRV
+*******************************************************************************/
+ssize_t write(struct file *f, const char *s, size_t len, loff_t *l)
+{
+	return -EINVAL;
+}
+ssize_t read(struct file *f, char *s, size_t len, loff_t *l)
+{
+	return -EINVAL;
+}
+
+static struct file_operations fops = {
+	.write = write,
+	.read = read
+};
+
+/*******************************************************************************
 * PLATFORM PM
 *******************************************************************************/
 int platform_pm_suspend(struct device *dev)
@@ -142,8 +162,11 @@ int platform_pm_idle(struct device *dev)
 *******************************************************************************/
 static int serial_probe(struct platform_device *pdev)
 {
+	int ret;
 	struct resource *res;
 	priv_serial_dev_t *priv;
+
+	printk(KERN_INFO "Module Base: 0x%x\n", (int)THIS_MODULE->core_layout.base);
 
 	/**
 	 * start addr (base addr) of the memory mapped UART Registers
@@ -179,6 +202,17 @@ static int serial_probe(struct platform_device *pdev)
 	pm_runtime_get_sync(&pdev->dev); /* get reference, resume and sync */
 	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
 
+	/* misc drv */
+	priv->miscdev.fops 	= &fops;
+	priv->miscdev.minor	= MISC_DYNAMIC_MINOR; /*dynamically set minor number */
+	priv->miscdev.name 	= devm_kasprintf(&pdev->dev, GFP_KERNEL, "serial-%x", res->start); /* allocate buffer and print to it */
+
+	ret = misc_register(&priv->miscdev);
+	if (ret)
+		goto misc_reg_err;
+
+	dev_info(&pdev->dev, "Created misc device \"%s\"\n", priv->miscdev.name);
+
 	return 0;
 
 /* error handling */
@@ -193,10 +227,16 @@ alloc_err:
 remap_err:
 	dev_err(&pdev->dev, "Error: Cannot remap registers\n");
 	return -ENOMEM;
+
+misc_reg_err:
+	dev_err(&pdev->dev, "Error: Cannot register misc device\n");
+	return -ENOMEM;
 }
 
 static int serial_remove(struct platform_device *pdev)
 {
+	priv_serial_dev_t *priv;
+
 	pr_info("Called serial_remove\n");
 
 	/* power management */
@@ -204,6 +244,10 @@ static int serial_remove(struct platform_device *pdev)
 	pm_runtime_put_sync(&pdev->dev); /* put reference, idle request and sync (Devices with references held cannot be suspended) */
 	pm_runtime_disable(&pdev->dev);
 	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
+
+	/* misc drv */
+	priv = platform_get_drvdata(pdev);
+	misc_deregister(&priv->miscdev);
 
 	return 0;
 }
