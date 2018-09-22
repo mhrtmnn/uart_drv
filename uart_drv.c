@@ -166,7 +166,7 @@ static int serial_probe(struct platform_device *pdev)
 	struct resource *res;
 	priv_serial_dev_t *priv;
 
-	printk(KERN_INFO "Module Base: 0x%x\n", (int)THIS_MODULE->core_layout.base);
+	pr_alert("%s: Module Base: 0x%x\n", __func__, (int)THIS_MODULE->core_layout.base);
 
 	/**
 	 * start addr (base addr) of the memory mapped UART Registers
