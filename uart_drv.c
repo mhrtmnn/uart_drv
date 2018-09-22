@@ -93,7 +93,7 @@ static void init_uart(struct platform_device *pdev)
 
 
 	// DBG
-	uart_str_write(priv, "Hello World, config done!");
+	uart_str_write(priv, "Hello World, config done!\n\r");
 }
 
 static void deinit_uart(struct platform_device *pdev)
