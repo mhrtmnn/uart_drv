@@ -7,6 +7,7 @@
 #include <linux/serial_reg.h>
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
+#include <linux/uaccess.h>
 
 /*******************************************************************************
 * MACROS/DEFINES
@@ -109,18 +110,39 @@ static void deinit_uart(struct platform_device *pdev)
 /*******************************************************************************
 * MISC DEVICE DRV
 *******************************************************************************/
-ssize_t write(struct file *f, const char *s, size_t len, loff_t *l)
+ssize_t f_uart_write(struct file *f, const char *buffer, size_t count, loff_t *ppos)
 {
-	return -EINVAL;
+	int i;
+	char c;
+	struct miscdevice *mdev;
+	priv_serial_dev_t *priv;
+
+	mdev = f->private_data;
+	priv = container_of(mdev, priv_serial_dev_t, miscdev);
+
+	/* print buffer charwise */
+	for (i = 0; i < count; i++) {
+
+		if (copy_from_user(&c, buffer+i, 1))
+			return -EFAULT;
+
+		uart_char_write(priv, c);
+
+		/* handle CR */
+		if (c == '\n')
+			uart_char_write(priv, '\r');
+	}
+
+	return count;
 }
-ssize_t read(struct file *f, char *s, size_t len, loff_t *l)
+ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *ppos)
 {
 	return -EINVAL;
 }
 
 static struct file_operations fops = {
-	.write = write,
-	.read = read
+	.write = f_uart_write,
+	.read  = f_uart_read
 };
 
 /*******************************************************************************
