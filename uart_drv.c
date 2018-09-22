@@ -28,6 +28,9 @@ typedef struct _priv_serial_dev_t
 /*******************************************************************************
 * HELPER FUNCTIONS
 *******************************************************************************/
+
+/********************************* Register IO ********************************/
+
 /**
  * write to register specified by an addr offset from the UART base address
  *
@@ -52,6 +55,19 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 	return ioread16(dev->iomem_base + 4 * off);
 }
 
+/********************************** char R/W **********************************/
+
+static char uart_char_read(priv_serial_dev_t *dev)
+{
+	while (!(reg_read(dev, UART_LSR) & UART_LSR_DR)) {
+		/* Optimization barrier, reload variable on each iteration */
+		cpu_relax();
+	}
+
+	/* read char from register */
+	return reg_read(dev, UART_RX);
+}
+
 static void uart_char_write(priv_serial_dev_t *dev, char c)
 {
 	while (!(reg_read(dev, UART_LSR) & UART_LSR_THRE)) {
@@ -70,6 +86,8 @@ static void uart_str_write(priv_serial_dev_t *dev, char *s)
 	while ((c = *s++) != '\0')
 		uart_char_write(dev, c);
 }
+
+/********************************** lifetime **********************************/
 
 static void init_uart(struct platform_device *pdev)
 {
