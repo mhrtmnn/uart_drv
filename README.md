@@ -1,6 +1,10 @@
 # UART Driver
 
-Simple UART Driver that explores memory mapped io.
+Simple UART Driver that explores:
+- Memory mapped io
+- `Platform` Drivers (UART Unit of BBB)
+- `Misc` Drivers (Character device `/dev/serial-481a8000`)
+- `ioctl` Syscalls
 
 The driver is part of the _BeagleBone Black_ [buildroot project].
 
