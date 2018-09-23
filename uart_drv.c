@@ -15,6 +15,8 @@
 #define UART_BAUD 115200
 #define LO_BYTE(x) (x & 0xff)
 #define HI_BYTE(x) ((x >> 8) & 0xff)
+#define IOCLT_SERIAL_RESET_COUNTER 0
+#define IOCLT_SERIAL_GET_COUNTER 1
 
 /*******************************************************************************
 * DATA STRUCTURES
@@ -23,6 +25,7 @@ typedef struct _priv_serial_dev_t
 {
 	void __iomem *iomem_base; /* virtual addr of the memory mapped io region */
 	struct miscdevice miscdev;
+	long sent_char;
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -75,6 +78,9 @@ static void uart_char_write(priv_serial_dev_t *dev, char c)
 
 	/* write char to register */
 	reg_write(dev, c, UART_TX);
+
+	/* update stats */
+	dev->sent_char++;
 }
 
 static void uart_str_write(priv_serial_dev_t *dev, char *s)
@@ -151,6 +157,7 @@ ssize_t f_uart_write(struct file *f, const char *buffer, size_t count, loff_t *p
 
 	return count;
 }
+
 ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 {
 	int i;
@@ -183,9 +190,42 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 	return i;
 }
 
+long f_uart_u_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
+{
+	int ret = 0;
+	int __user *argp;
+	struct miscdevice *mdev;
+	priv_serial_dev_t *priv;
+
+	mdev = f->private_data;
+	priv = container_of(mdev, priv_serial_dev_t, miscdev);
+	argp = (void __user *)arg;
+
+	switch (cmd) {
+		case IOCLT_SERIAL_RESET_COUNTER:
+			priv->sent_char = 0;
+			break;
+		case IOCLT_SERIAL_GET_COUNTER:
+			/**
+			 * copies a single simple value from kernel space to user space.
+			 * It supports simple types like char, int and long.
+			 * copy_to_user() is more general and copies an arbitrary
+			 * amount of data to userspace.
+			 */
+			put_user(priv->sent_char, argp);
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+	}
+
+	return ret;
+}
+
 static struct file_operations fops = {
-	.write = f_uart_write,
-	.read  = f_uart_read
+	.write 			= f_uart_write,
+	.read  			= f_uart_read,
+	.unlocked_ioctl = f_uart_u_ioctl,
 };
 
 /*******************************************************************************
