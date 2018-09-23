@@ -151,7 +151,7 @@ ssize_t f_uart_write(struct file *f, const char *buffer, size_t count, loff_t *p
 
 	return count;
 }
-ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *ppos)
+ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 {
 	int i;
 	char c;
@@ -165,6 +165,9 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *ppos)
 	i = 0;
 	while (i < count) {
 		c = uart_char_read(priv);
+		if (c == '\0')
+			/* no new data */
+			break;
 
 		/* echo back */
 		uart_char_write(priv, c);
@@ -173,8 +176,8 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *ppos)
 		if (copy_to_user(buffer + i++, &c, 1))
 			return -EFAULT;
 
-		if (c == '\r')
-			break;
+		/* advance offset by number of read bytes (not used in this case) */
+		(*off) += 1;
 	}
 
 	return i;
