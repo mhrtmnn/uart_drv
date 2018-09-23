@@ -59,13 +59,11 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 
 static char uart_char_read(priv_serial_dev_t *dev)
 {
-	while (!(reg_read(dev, UART_LSR) & UART_LSR_DR)) {
-		/* Optimization barrier, reload variable on each iteration */
-		cpu_relax();
-	}
-
-	/* read char from register */
-	return reg_read(dev, UART_RX);
+	if (reg_read(dev, UART_LSR) & UART_LSR_DR)
+		return reg_read(dev, UART_RX);
+	else
+		/* there is no new character in the RX FIFO */
+		return '\0';
 }
 
 static void uart_char_write(priv_serial_dev_t *dev, char c)
