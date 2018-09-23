@@ -153,7 +153,31 @@ ssize_t f_uart_write(struct file *f, const char *buffer, size_t count, loff_t *p
 }
 ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *ppos)
 {
-	return -EINVAL;
+	int i;
+	char c;
+	struct miscdevice *mdev;
+	priv_serial_dev_t *priv;
+
+	mdev = f->private_data;
+	priv = container_of(mdev, priv_serial_dev_t, miscdev);
+
+	/* read charwise and copy to userspace buffer */
+	i = 0;
+	while (i < count) {
+		c = uart_char_read(priv);
+
+		/* echo back */
+		uart_char_write(priv, c);
+
+		/* fill userspace buffer */
+		if (copy_to_user(buffer + i++, &c, 1))
+			return -EFAULT;
+
+		if (c == '\r')
+			break;
+	}
+
+	return i;
 }
 
 static struct file_operations fops = {
