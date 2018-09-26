@@ -8,6 +8,7 @@
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#include <linux/interrupt.h>
 
 /*******************************************************************************
 * MACROS/DEFINES
@@ -26,6 +27,9 @@ typedef struct _priv_serial_dev_t
 	void __iomem *iomem_base; /* virtual addr of the memory mapped io region */
 	struct miscdevice miscdev;
 	long sent_char;
+	char rec_char;
+	bool rec_char_rdy;
+	int irq;
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -62,11 +66,17 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 
 static char uart_char_read(priv_serial_dev_t *dev)
 {
-	if (reg_read(dev, UART_LSR) & UART_LSR_DR)
-		return reg_read(dev, UART_RX);
-	else
-		/* there is no new character in the RX FIFO */
-		return '\0';
+	char c;
+
+	// TODO Locking
+	if (dev->rec_char_rdy) {
+		dev->rec_char_rdy = false;
+		c = dev->rec_char;
+	} else {
+		c = '\0';
+	}
+
+	return c;
 }
 
 static void uart_char_write(priv_serial_dev_t *dev, char c)
@@ -109,6 +119,7 @@ static void init_uart(struct platform_device *pdev)
 	reg_write(priv, LO_BYTE(baud_divisor), UART_DLL); /* set CLOCK_LSB */
 	reg_write(priv, HI_BYTE(baud_divisor), UART_DLM); /* set CLOCK_MSB */
 	reg_write(priv, UART_LCR_WLEN8, UART_LCR);        /* set word length to 8bit */
+	reg_write(priv, UART_IER_RDI, UART_IER);          /* enable receiver data interrupt */
 
 	/* Soft reset */
 	reg_write(priv, UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT, UART_FCR); /* Clears the RX/TX FIFO and resets its counter logic to 0 */
@@ -127,6 +138,31 @@ static void deinit_uart(struct platform_device *pdev)
 
 	/* set MODESELECT to Disable */
 	reg_write(priv, 0x07, UART_OMAP_MDR1);
+}
+
+/*******************************************************************************
+* INTERRUPT HANDLER
+*******************************************************************************/
+irqreturn_t uart_int_handler(int irq, void *dev_id)
+{
+	int ret;
+	struct platform_device *pdev = dev_id;
+	priv_serial_dev_t *priv = platform_get_drvdata(pdev);
+
+	/* check wether there is receiver data ready */
+	if (reg_read(priv, UART_LSR) & UART_LSR_DR) {
+		priv->rec_char = reg_read(priv, UART_RX);
+		priv->rec_char_rdy = true;
+
+		dev_info(&pdev->dev, "Interrupt! Received '%c'\n", priv->rec_char);
+		ret = IRQ_HANDLED;
+	} else {
+		/* there is no new character in the RX FIFO */
+		dev_info(&pdev->dev, "Huh?? I thought there was an interrupt!\n");
+		ret = IRQ_NONE;
+	}
+
+	return ret;
 }
 
 /*******************************************************************************
@@ -329,6 +365,17 @@ static int serial_probe(struct platform_device *pdev)
 
 	dev_info(&pdev->dev, "Created misc device \"%s\"\n", priv->miscdev.name);
 
+	/* get IRQ form device tree */
+	priv->irq = platform_get_irq(pdev, 0);
+	if (priv->irq < 0)
+		goto irq_dts_err;
+
+	/* request a threaded irq, that is freed on driver detach */
+	ret = devm_request_irq(&pdev->dev, priv->irq, uart_int_handler, 0,
+						   "uart_int_handler", pdev);
+	if (ret)
+		goto request_irq_err;
+
 	return 0;
 
 /* error handling */
@@ -347,6 +394,16 @@ remap_err:
 misc_reg_err:
 	dev_err(&pdev->dev, "Error: Cannot register misc device\n");
 	return -ENOMEM;
+
+irq_dts_err:
+	dev_err(&pdev->dev, "Error: Cannot not get IRQ from DTS\n");
+	misc_deregister(&priv->miscdev);
+	return ret;
+
+request_irq_err:
+	dev_err(&pdev->dev, "Error: Cannot request IRQ\n");
+	misc_deregister(&priv->miscdev);
+	return ret;
 }
 
 static int serial_remove(struct platform_device *pdev)
