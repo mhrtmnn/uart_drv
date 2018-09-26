@@ -18,6 +18,7 @@
 #define HI_BYTE(x) ((x >> 8) & 0xff)
 #define IOCLT_SERIAL_RESET_COUNTER 0
 #define IOCLT_SERIAL_GET_COUNTER 1
+#define SERIAL_BUFSIZE 16
 
 /*******************************************************************************
 * DATA STRUCTURES
@@ -27,9 +28,10 @@ typedef struct _priv_serial_dev_t
 	void __iomem *iomem_base; /* virtual addr of the memory mapped io region */
 	struct miscdevice miscdev;
 	long num_sent_char;
-	char rec_char;
-	bool rec_char_rdy;
 	int irq;
+	char circ_buf[SERIAL_BUFSIZE];
+	int buf_rd; /* current rd ptr in circ buffer */
+	int buf_wr; /* current wr ptr in circ buffer */
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -69,9 +71,10 @@ static char uart_char_read(priv_serial_dev_t *dev)
 	char c;
 
 	// TODO Locking
-	if (dev->rec_char_rdy) {
-		dev->rec_char_rdy = false;
-		c = dev->rec_char;
+	if (dev->buf_wr != dev->buf_rd) {
+		/* there is at least one char in the buffer */
+		c = dev->circ_buf[dev->buf_rd];
+		dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
 	} else {
 		c = '\0';
 	}
@@ -151,14 +154,18 @@ irqreturn_t uart_int_handler(int irq, void *dev_id)
 
 	/* check wether there is receiver data ready */
 	if (reg_read(priv, UART_LSR) & UART_LSR_DR) {
-		priv->rec_char = reg_read(priv, UART_RX);
-		priv->rec_char_rdy = true;
+		char c = reg_read(priv, UART_RX);
+		//dev_info(&pdev->dev, "Interrupt! Received '%c' (wpos=%d, rpos=%d)\n", c, priv->buf_wr, priv->buf_rd);
 
-		dev_info(&pdev->dev, "Interrupt! Received '%c'\n", priv->rec_char);
+		/* store char at wr ptr position in circ buffer */
+		priv->circ_buf[priv->buf_wr] = c;
+		priv->buf_wr = (priv->buf_wr + 1) % SERIAL_BUFSIZE;
+
 		ret = IRQ_HANDLED;
 	} else {
 		/* there is no new character in the RX FIFO */
 		dev_info(&pdev->dev, "Huh?? I thought there was an interrupt!\n");
+
 		ret = IRQ_NONE;
 	}
 
