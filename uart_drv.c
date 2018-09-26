@@ -26,7 +26,7 @@ typedef struct _priv_serial_dev_t
 {
 	void __iomem *iomem_base; /* virtual addr of the memory mapped io region */
 	struct miscdevice miscdev;
-	long sent_char;
+	long num_sent_char;
 	char rec_char;
 	bool rec_char_rdy;
 	int irq;
@@ -90,7 +90,7 @@ static void uart_char_write(priv_serial_dev_t *dev, char c)
 	reg_write(dev, c, UART_TX);
 
 	/* update stats */
-	dev->sent_char++;
+	dev->num_sent_char++;
 }
 
 static void uart_str_write(priv_serial_dev_t *dev, char *s)
@@ -239,7 +239,7 @@ long f_uart_u_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 		case IOCLT_SERIAL_RESET_COUNTER:
-			priv->sent_char = 0;
+			priv->num_sent_char = 0;
 			break;
 		case IOCLT_SERIAL_GET_COUNTER:
 			/**
@@ -248,7 +248,7 @@ long f_uart_u_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			 * copy_to_user() is more general and copies an arbitrary
 			 * amount of data to userspace.
 			 */
-			put_user(priv->sent_char, argp);
+			put_user(priv->num_sent_char, argp);
 			break;
 		default:
 			ret = -EINVAL;
