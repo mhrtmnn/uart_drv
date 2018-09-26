@@ -337,23 +337,6 @@ static int serial_probe(struct platform_device *pdev)
 	/* save priv data ptr */
 	platform_set_drvdata(pdev, priv);
 
-	/**
-	 * Power management:
-	 *
-	 * This indirectly calls omap_device_enable()
-	 *
-	 * From arch/arm/mach-omap2/omap_device.c:
-	 *  # Do whatever is necessary for the hwmods underlying omap_device @od
-	 *  # to be accessible and ready to operate.  This generally involves
-	 *  # enabling clocks, setting SYSCONFIG registers; and in the future may
-	 *  # involve remuxing pins.  Device drivers should call this function
-	 *  # indirectly via pm_runtime_get*().
-	 */
-	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
-	pm_runtime_enable(&pdev->dev);
-	pm_runtime_get_sync(&pdev->dev); /* get reference, resume and sync */
-	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
-
 	/* misc drv */
 	priv->miscdev.fops 	= &fops;
 	priv->miscdev.minor	= MISC_DYNAMIC_MINOR; /*dynamically set minor number */
@@ -375,6 +358,23 @@ static int serial_probe(struct platform_device *pdev)
 						   "uart_int_handler", pdev);
 	if (ret)
 		goto request_irq_err;
+
+	/**
+	 * Power management:
+	 *
+	 * This indirectly calls omap_device_enable()
+	 *
+	 * From arch/arm/mach-omap2/omap_device.c:
+	 *  # Do whatever is necessary for the hwmods underlying omap_device @od
+	 *  # to be accessible and ready to operate.  This generally involves
+	 *  # enabling clocks, setting SYSCONFIG registers; and in the future may
+	 *  # involve remuxing pins.  Device drivers should call this function
+	 *  # indirectly via pm_runtime_get*().
+	 */
+	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
+	pm_runtime_enable(&pdev->dev);
+	pm_runtime_get_sync(&pdev->dev); /* get reference, resume and sync */
+	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
 
 	return 0;
 
