@@ -93,7 +93,7 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 	return reg;
 }
 
-/********************************** circ buf **********************************/
+/********************************** circ kbuf **********************************/
 
 int circ_buf_isempty(priv_serial_dev_t *dev)
 {
@@ -252,36 +252,36 @@ static void deinit_uart(struct platform_device *pdev)
 * DEBUGFS
 *******************************************************************************/
 
-static ssize_t perf_dbgfs_read_info(struct file *f, char __user *ubuf,
-									size_t size, loff_t *offp)
+static ssize_t dbgfs_ctr_rd_fops(struct file *f, char __user *ubuf,
+								 size_t size, loff_t *offp)
 {
-	int ret, buf_avail;
-	char *buf;
-	size_t buf_size;
+	int ret, kbuf_avail;
+	char *kbuf;
+	size_t kbuf_size;
 	priv_serial_dev_t *priv = f->private_data;
 
 	/* return minimum of two values, using the specified type */
-	buf_size = min_t(size_t, size, 256);
+	kbuf_size = min_t(size_t, size, 256);
 
-	buf = kzalloc(buf_size, GFP_KERNEL);
-	if (!buf)
+	kbuf = kzalloc(kbuf_size, GFP_KERNEL);
+	if (!kbuf)
 		return -ENOMEM;
 
-	buf_avail = scnprintf(buf, buf_size, "\tCounter Value: %ld\n", priv->num_sent_char);
+	kbuf_avail = scnprintf(kbuf, kbuf_size, "\tCounter Value: %ld\n", priv->num_sent_char);
 
 	/* handle bounds checks, copy to user, offset advancement */
-	ret = simple_read_from_buffer(ubuf, size, offp, buf, buf_avail);
-	kzfree(buf);
+	ret = simple_read_from_buffer(ubuf, size, offp, kbuf, kbuf_avail);
+	kzfree(kbuf);
 
 	return ret;
-
 }
+
 
 /****************************** driver structures *****************************/
 
 static const struct file_operations ser_counter_dbg_fops = {
-	.open = simple_open, /* only does: file->private_data = inode->i_private */
-	.read = perf_dbgfs_read_info
+	.open  = simple_open, /* only does: file->private_data = inode->i_private */
+	.read  = dbgfs_ctr_rd_fops,
 };
 
 /*******************************************************************************
