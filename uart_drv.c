@@ -91,6 +91,8 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 
 int circ_buf_isempty(priv_serial_dev_t *dev)
 {
+	BUG_ON(!spin_is_locked(&dev->tx_wq.lock));
+
 	/**
 	 * FULL and EMPTY states are not distinguishable from head and tail
 	 * index alone, so use a separate variable for differentiation of
@@ -102,6 +104,8 @@ int circ_buf_isempty(priv_serial_dev_t *dev)
 char circ_buf_read(priv_serial_dev_t *dev)
 {
 	char c;
+
+	BUG_ON(!spin_is_locked(&dev->tx_wq.lock));
 
 	if (dev->buf_tail == dev->buf_head) {
 		/**
@@ -120,6 +124,8 @@ char circ_buf_read(priv_serial_dev_t *dev)
 
 void circ_buf_insert(priv_serial_dev_t *dev, char c)
 {
+	BUG_ON(!spin_is_locked(&dev->tx_wq.lock));
+
 	/* store char at wr ptr position in circ buffer */
 	dev->circ_buf[dev->buf_head] = c;
 	dev->buf_head = (dev->buf_head + 1) % SERIAL_BUFSIZE;
@@ -161,13 +167,16 @@ static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
 	 * The function will return -ERESTARTSYS if it was interrupted by a signal
 	 * and 0 if condition evaluated to true.
 	 */
-	spin_lock_irq(&dev->tx_wq.lock);
+	BUG_ON(in_irq());
+	spin_lock_irq(&dev->tx_wq.lock); /* disables irq */
 
 	ret = wait_event_interruptible_locked_irq(dev->tx_wq, !circ_buf_isempty(dev));
 	if (ret == 0)
 		*c = circ_buf_read(dev); /* at least one char in the buffer */
 
-	spin_unlock_irq(&dev->tx_wq.lock);
+	BUG_ON(!spin_is_locked(&dev->tx_wq.lock));
+
+	spin_unlock_irq(&dev->tx_wq.lock); /* enables irq */
 
 	return ret;
 }
