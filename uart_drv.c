@@ -32,6 +32,7 @@ typedef struct _priv_serial_dev_t
 	char circ_buf[SERIAL_BUFSIZE];
 	int buf_rd; /* current rd ptr in circ buffer */
 	int buf_wr; /* current wr ptr in circ buffer */
+	bool buf_is_full;
 	wait_queue_head_t tx_wq;
 } priv_serial_dev_t;
 
@@ -69,12 +70,18 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 
 int circ_buf_isempty(priv_serial_dev_t *dev)
 {
-	return dev->buf_wr == dev->buf_rd;
+	return dev->buf_rd == dev->buf_wr && !dev->buf_is_full;
 }
 
 char circ_buf_read(priv_serial_dev_t *dev)
 {
-	char c = dev->circ_buf[dev->buf_rd];
+	char c;
+
+	if (dev->buf_rd == dev->buf_wr)
+		dev->buf_is_full = false;
+
+	/* read char from rd ptr position in circ buffer */
+	c = dev->circ_buf[dev->buf_rd];
 	dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
 
 	return c;
@@ -85,6 +92,12 @@ void circ_buf_insert(priv_serial_dev_t *dev, char c)
 	/* store char at wr ptr position in circ buffer */
 	dev->circ_buf[dev->buf_wr] = c;
 	dev->buf_wr = (dev->buf_wr + 1) % SERIAL_BUFSIZE;
+
+	if (dev->buf_rd == dev->buf_wr) {
+		dev->buf_is_full = true;
+	} else if (dev->buf_rd < dev->buf_wr && dev->buf_is_full) {
+		dev->buf_rd = dev->buf_wr;
+	}
 }
 
 /********************************** char R/W **********************************/
