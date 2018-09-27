@@ -263,11 +263,12 @@ static ssize_t dbgfs_ctr_rd_fops(struct file *f, char __user *ubuf,
 	/* return minimum of two values, using the specified type */
 	kbuf_size = min_t(size_t, size, 256);
 
-	kbuf = kalloc(kbuf_size, GFP_KERNEL);
+	kbuf = kmalloc(kbuf_size, GFP_KERNEL);
 	if (!kbuf)
 		return -ENOMEM;
 
 	kbuf_avail = scnprintf(kbuf, kbuf_size, "\tCounter Value: %ld\n", priv->num_sent_char);
+	kbuf_avail += scnprintf(kbuf + kbuf_avail, kbuf_size - kbuf_avail, "\tWrite 'reset' to reset counter\n");
 
 	/* handle bounds checks, copy to user, offset advancement */
 	ret = simple_read_from_buffer(ubuf, size, offp, kbuf, kbuf_avail);
