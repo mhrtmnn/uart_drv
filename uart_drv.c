@@ -30,8 +30,8 @@ typedef struct _priv_serial_dev_t
 	long num_sent_char;
 	int irq;
 	char circ_buf[SERIAL_BUFSIZE];
-	int buf_rd; /* current rd ptr in circ buffer */
-	int buf_wr; /* current wr ptr in circ buffer */
+	int buf_tail; /* current rd ptr in circ buffer */
+	int buf_head; /* current wr ptr in circ buffer */
 	bool buf_is_full;
 	wait_queue_head_t tx_wq;
 } priv_serial_dev_t;
@@ -70,19 +70,29 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 
 int circ_buf_isempty(priv_serial_dev_t *dev)
 {
-	return dev->buf_rd == dev->buf_wr && !dev->buf_is_full;
+	/**
+	 * FULL and EMPTY states are not distinguishable from head and tail
+	 * index alone, so use a separate variable for differentiation of
+	 * these states
+	 */
+	return dev->buf_tail == dev->buf_head && !dev->buf_is_full;
 }
 
 char circ_buf_read(priv_serial_dev_t *dev)
 {
 	char c;
 
-	if (dev->buf_rd == dev->buf_wr)
+	if (dev->buf_tail == dev->buf_head) {
+		/**
+		 * Buffer holds SERIAL_BUFSIZE elements (is in FULL state),
+		 * since oldest element will now be read it must leave the FULL state
+		 */
 		dev->buf_is_full = false;
+	}
 
 	/* read char from rd ptr position in circ buffer */
-	c = dev->circ_buf[dev->buf_rd];
-	dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
+	c = dev->circ_buf[dev->buf_tail];
+	dev->buf_tail = (dev->buf_tail + 1) % SERIAL_BUFSIZE;
 
 	return c;
 }
@@ -90,13 +100,17 @@ char circ_buf_read(priv_serial_dev_t *dev)
 void circ_buf_insert(priv_serial_dev_t *dev, char c)
 {
 	/* store char at wr ptr position in circ buffer */
-	dev->circ_buf[dev->buf_wr] = c;
-	dev->buf_wr = (dev->buf_wr + 1) % SERIAL_BUFSIZE;
+	dev->circ_buf[dev->buf_head] = c;
+	dev->buf_head = (dev->buf_head + 1) % SERIAL_BUFSIZE;
 
-	if (dev->buf_rd == dev->buf_wr) {
+	if (dev->buf_tail == dev->buf_head) {
+		/**
+		 * After this insertion, the buffer holds SERIAL_BUFSIZE elements,
+		 * thus it must enter the FULL state
+		 */
 		dev->buf_is_full = true;
-	} else if (dev->buf_rd < dev->buf_wr && dev->buf_is_full) {
-		dev->buf_rd = dev->buf_wr;
+	} else if (dev->buf_tail < dev->buf_head && dev->buf_is_full) {
+		dev->buf_tail = dev->buf_head;
 	}
 }
 
