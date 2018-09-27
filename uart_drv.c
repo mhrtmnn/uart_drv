@@ -34,6 +34,7 @@ typedef struct _priv_serial_dev_t
 	int buf_head; /* current wr ptr in circ buffer */
 	bool buf_is_full;
 	wait_queue_head_t tx_wq;
+	spinlock_t reg_lock; /* protect register accesses */
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -50,6 +51,15 @@ typedef struct _priv_serial_dev_t
  */
 static void reg_write(priv_serial_dev_t *dev, int val, int off)
 {
+	unsigned long flags;
+
+	/**
+	 * disable interrupts locally (only the current processor) and lock.
+	 * This ensures that we are not interrupted by an interrupt handler,
+	 * which then tries to lock the spinlock itself resulting in a deadlock
+	 */
+	spin_lock_irqsave(&dev->reg_lock, flags);
+
 	/**
 	 * Common UART Register offsets are defined in linux/serial_reg.h
 	 * For OMAP SoCs, the following conversion rule has to be applied:
@@ -57,13 +67,24 @@ static void reg_write(priv_serial_dev_t *dev, int val, int off)
 	 * AM335x_offset = 4*linux_offset
 	 */
 	iowrite16(val, dev->iomem_base + 4 * off);
+
+	spin_unlock_irqrestore(&dev->reg_lock, flags);
 }
 
 /* read from register specified by an addr offset from the UART base address */
 static int reg_read(priv_serial_dev_t *dev, int off)
 {
+	int reg;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->reg_lock, flags);
+
 	/* AM335x_offset = 4*linux_offset */
-	return ioread16(dev->iomem_base + 4 * off);
+	reg = ioread16(dev->iomem_base + 4 * off);
+
+	spin_unlock_irqrestore(&dev->reg_lock, flags);
+
+	return reg;
 }
 
 /********************************** circ buf **********************************/
@@ -456,6 +477,12 @@ static int serial_probe(struct platform_device *pdev)
 						   "uart_int_handler", pdev);
 	if (ret)
 		goto request_irq_err;
+
+	/**
+	 * synchronisation
+	 */
+	spin_lock_init(&priv->reg_lock);
+
 
 	/**
 	 * Power management:
