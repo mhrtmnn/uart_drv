@@ -18,7 +18,7 @@
 #define HI_BYTE(x) ((x >> 8) & 0xff)
 #define IOCLT_SERIAL_RESET_COUNTER 0
 #define IOCLT_SERIAL_GET_COUNTER 1
-#define SERIAL_BUFSIZE 16
+#define SERIAL_BUFSIZE 8
 
 /*******************************************************************************
 * DATA STRUCTURES
@@ -65,6 +65,28 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 	return ioread16(dev->iomem_base + 4 * off);
 }
 
+/********************************** circ buf **********************************/
+
+int circ_buf_isempty(priv_serial_dev_t *dev)
+{
+	return dev->buf_wr == dev->buf_rd;
+}
+
+char circ_buf_read(priv_serial_dev_t *dev)
+{
+	char c = dev->circ_buf[dev->buf_rd];
+	dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
+
+	return c;
+}
+
+void circ_buf_insert(priv_serial_dev_t *dev, char c)
+{
+	/* store char at wr ptr position in circ buffer */
+	dev->circ_buf[dev->buf_wr] = c;
+	dev->buf_wr = (dev->buf_wr + 1) % SERIAL_BUFSIZE;
+}
+
 /********************************** char R/W **********************************/
 
 /* non blocking read */
@@ -73,10 +95,9 @@ static char uart_char_read(priv_serial_dev_t *dev)
 	char c;
 
 	// TODO Locking
-	if (dev->buf_wr != dev->buf_rd) {
+	if (!circ_buf_isempty(dev)) {
 		/* there is at least one char in the buffer */
-		c = dev->circ_buf[dev->buf_rd];
-		dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
+		c = circ_buf_read(dev);
 	} else {
 		c = '\0';
 	}
@@ -89,7 +110,7 @@ static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
 {
 	int ret;
 
-	if (dev->buf_wr == dev->buf_rd) {
+	if (circ_buf_isempty(dev)) {
 		/**
 		 * The process is put to sleep (TASK_INTERRUPTIBLE) until the condition
 		 * evaluates to true or a signal is received. The condition is checked
@@ -100,14 +121,13 @@ static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
 		 * The function will return -ERESTARTSYS if it was interrupted by a
 		 * signal and 0 if condition evaluated to true.
 		 */
-		ret = wait_event_interruptible(dev->tx_wq, dev->buf_wr != dev->buf_rd);
+		ret = wait_event_interruptible(dev->tx_wq, !circ_buf_isempty(dev));
 		if (ret)
 			return ret;
 	}
 
 	/* there is at least one char in the buffer */
-	*c = dev->circ_buf[dev->buf_rd];
-	dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
+	*c = circ_buf_read(dev);
 
 	return 0;
 }
@@ -185,11 +205,8 @@ irqreturn_t uart_int_handler(int irq, void *dev_id)
 	/* check wether there is receiver data ready */
 	if (reg_read(priv, UART_LSR) & UART_LSR_DR) {
 		char c = reg_read(priv, UART_RX);
-		//dev_info(&pdev->dev, "Interrupt! Received '%c' (wpos=%d, rpos=%d)\n", c, priv->buf_wr, priv->buf_rd);
 
-		/* store char at wr ptr position in circ buffer */
-		priv->circ_buf[priv->buf_wr] = c;
-		priv->buf_wr = (priv->buf_wr + 1) % SERIAL_BUFSIZE;
+		circ_buf_insert(priv, c);
 
 		/* signal availability of new data to waiting processes */
 		wake_up(&priv->tx_wq);
