@@ -32,6 +32,7 @@ typedef struct _priv_serial_dev_t
 	char circ_buf[SERIAL_BUFSIZE];
 	int buf_rd; /* current rd ptr in circ buffer */
 	int buf_wr; /* current wr ptr in circ buffer */
+	wait_queue_head_t tx_wq;
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -66,6 +67,7 @@ static int reg_read(priv_serial_dev_t *dev, int off)
 
 /********************************** char R/W **********************************/
 
+/* non blocking read */
 static char uart_char_read(priv_serial_dev_t *dev)
 {
 	char c;
@@ -80,6 +82,34 @@ static char uart_char_read(priv_serial_dev_t *dev)
 	}
 
 	return c;
+}
+
+/* blocking read, wait until buffer is nonempty */
+static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
+{
+	int ret;
+
+	if (dev->buf_wr == dev->buf_rd) {
+		/**
+		 * The process is put to sleep (TASK_INTERRUPTIBLE) until the condition
+		 * evaluates to true or a signal is received. The condition is checked
+		 * each time the waitqueue wq is woken up. Thus, wake_up has to be
+		 * called after changing any variable that could change the result of
+		 * the wait condition.
+		 *
+		 * The function will return -ERESTARTSYS if it was interrupted by a
+		 * signal and 0 if condition evaluated to true.
+		 */
+		ret = wait_event_interruptible(dev->tx_wq, dev->buf_wr != dev->buf_rd);
+		if (ret)
+			return ret;
+	}
+
+	/* there is at least one char in the buffer */
+	*c = dev->circ_buf[dev->buf_rd];
+	dev->buf_rd = (dev->buf_rd + 1) % SERIAL_BUFSIZE;
+
+	return 0;
 }
 
 static void uart_char_write(priv_serial_dev_t *dev, char c)
@@ -161,6 +191,9 @@ irqreturn_t uart_int_handler(int irq, void *dev_id)
 		priv->circ_buf[priv->buf_wr] = c;
 		priv->buf_wr = (priv->buf_wr + 1) % SERIAL_BUFSIZE;
 
+		/* signal availability of new data to waiting processes */
+		wake_up(&priv->tx_wq);
+
 		ret = IRQ_HANDLED;
 	} else {
 		/* there is no new character in the RX FIFO */
@@ -214,10 +247,20 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 	/* read charwise and copy to userspace buffer */
 	i = 0;
 	while (i + (*off) < count) {
-		c = uart_char_read(priv);
-		if (c == '\0')
-			/* no new data */
-			break;
+
+		/**
+		 * Assuming an Interruption of userspace application due to signal
+		 * (uart_char_read_block returns ERESTARTSYS):
+		 * If ERESTARTSYS is returned from here, the syscall is restarted once
+		 * the app's signal handler finishes, without userspace app noticing.
+		 * However, this only works if syscall is idempotent,
+		 * otherwise EINTR needs to be returned to userspace to indicate the
+		 * failure of the syscall.
+		 */
+		if (uart_char_read_block(priv, &c)) {
+			pr_alert("Restarting Syscall after userland signal!\n");
+			return -ERESTARTSYS;
+		}
 
 		/* echo back */
 		uart_char_write(priv, c);
@@ -354,6 +397,7 @@ static int serial_probe(struct platform_device *pdev)
 	priv->miscdev.fops 	= &fops;
 	priv->miscdev.minor	= MISC_DYNAMIC_MINOR; /*dynamically set minor number */
 	priv->miscdev.name 	= devm_kasprintf(&pdev->dev, GFP_KERNEL, "serial-%x", res->start); /* allocate buffer and print to it */
+	init_waitqueue_head(&priv->tx_wq);
 
 	ret = misc_register(&priv->miscdev);
 	if (ret)
