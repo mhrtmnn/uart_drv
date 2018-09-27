@@ -213,7 +213,7 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 
 	/* read charwise and copy to userspace buffer */
 	i = 0;
-	while (i < count) {
+	while (i + (*off) < count) {
 		c = uart_char_read(priv);
 		if (c == '\0')
 			/* no new data */
@@ -222,13 +222,19 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 		/* echo back */
 		uart_char_write(priv, c);
 
-		/* fill userspace buffer */
-		if (copy_to_user(buffer + i++, &c, 1))
+		/**
+		 * fill userspace buffer
+		 * If read is called multiple times, the buffer contains the data that
+		 * was written to it in previous calls.
+		 * 'off' is offset in buffer to the first empty element from previous
+		 * call to read, i.e. off-1 is the last element written by the prev call
+		 */
+		if (copy_to_user(buffer + (*off) + i++, &c, 1))
 			return -EFAULT;
-
-		/* advance offset by number of read bytes (not used in this case) */
-		(*off) += 1;
 	}
+
+	/* advance offset by number of read bytes */
+	(*off) += i;
 
 	return i;
 }
