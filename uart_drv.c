@@ -206,7 +206,7 @@ static void uart_str_write(priv_serial_dev_t *dev, char *s)
 		uart_char_write(dev, c);
 }
 
-/********************************** lifetime **********************************/
+/********************************** lifecycle *********************************/
 
 static void init_uart(struct platform_device *pdev)
 {
@@ -398,6 +398,8 @@ long f_uart_u_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 
 	return ret;
 }
+
+/****************************** driver structures *****************************/
 
 static struct file_operations fops = {
 	.write 			= f_uart_write,
