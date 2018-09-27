@@ -9,6 +9,8 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/interrupt.h>
+#include <linux/slab.h>
+#include <linux/debugfs.h>
 
 /*******************************************************************************
 * MACROS/DEFINES
@@ -38,6 +40,7 @@ typedef struct _priv_serial_dev_t
 	bool buf_is_full;
 	wait_queue_head_t tx_wq;
 	spinlock_t reg_lock; /* protect register accesses */
+	struct dentry *dbgfs_dentry;
 } priv_serial_dev_t;
 
 /*******************************************************************************
@@ -246,6 +249,42 @@ static void deinit_uart(struct platform_device *pdev)
 }
 
 /*******************************************************************************
+* DEBUGFS
+*******************************************************************************/
+
+static ssize_t perf_dbgfs_read_info(struct file *f, char __user *ubuf,
+									size_t size, loff_t *offp)
+{
+	int ret, buf_avail;
+	char *buf;
+	size_t buf_size;
+	priv_serial_dev_t *priv = f->private_data;
+
+	/* return minimum of two values, using the specified type */
+	buf_size = min_t(size_t, size, 256);
+
+	buf = kzalloc(buf_size, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	buf_avail = scnprintf(buf, buf_size, "\tCounter Value: %ld\n", priv->num_sent_char);
+
+	/* handle bounds checks, copy to user, offset advancement */
+	ret = simple_read_from_buffer(ubuf, size, offp, buf, buf_avail);
+	kzfree(buf);
+
+	return ret;
+
+}
+
+/****************************** driver structures *****************************/
+
+static const struct file_operations ser_counter_dbg_fops = {
+	.open = simple_open, /* only does: file->private_data = inode->i_private */
+	.read = perf_dbgfs_read_info
+};
+
+/*******************************************************************************
 * INTERRUPT HANDLER
 *******************************************************************************/
 irqreturn_t uart_int_handler(int irq, void *dev_id)
@@ -449,6 +488,7 @@ static int serial_probe(struct platform_device *pdev)
 	int ret;
 	struct resource *res;
 	priv_serial_dev_t *priv;
+	struct dentry *dent;
 
 	pr_debug("%s: Base = 0x%x\n", __func__, (int)THIS_MODULE->core_layout.base);
 
@@ -523,6 +563,19 @@ static int serial_probe(struct platform_device *pdev)
 	pm_runtime_get_sync(&pdev->dev); /* get reference, resume and sync */
 	pr_debug("Pstate: %d\n", pdev->dev.power.runtime_status);
 
+	/* register new directory in debugfs root */
+	dent = debugfs_create_dir("serial", NULL);
+	if (IS_ERR_OR_NULL(dent))
+		goto dbgfs_reg_err;
+
+	/**
+	 * new debugfs file "counter"
+	 * - everybody can read (S_IRUGO = read_{usr, grp, other})
+	 * - data will be stored in the i_private field of resulting inode structure
+	 */
+	debugfs_create_file("counter", S_IRUGO, dent, priv, &ser_counter_dbg_fops);
+	priv->dbgfs_dentry = dent;
+
 	return 0;
 
 /* error handling */
@@ -551,6 +604,11 @@ request_irq_err:
 	dev_err(&pdev->dev, "Error: Cannot request IRQ\n");
 	misc_deregister(&priv->miscdev);
 	return ret;
+
+dbgfs_reg_err:
+	dev_err(&pdev->dev, "Error: Cannot register debugfs\n");
+	return -ENOMEM;
+
 }
 
 static int serial_remove(struct platform_device *pdev)
@@ -568,6 +626,9 @@ static int serial_remove(struct platform_device *pdev)
 	/* misc drv */
 	priv = platform_get_drvdata(pdev);
 	misc_deregister(&priv->miscdev);
+
+	/* dbgfs */
+	debugfs_remove_recursive(priv->dbgfs_dentry);
 
 	return 0;
 }
