@@ -263,7 +263,7 @@ static ssize_t dbgfs_ctr_rd_fops(struct file *f, char __user *ubuf,
 	/* return minimum of two values, using the specified type */
 	kbuf_size = min_t(size_t, size, 256);
 
-	kbuf = kzalloc(kbuf_size, GFP_KERNEL);
+	kbuf = kalloc(kbuf_size, GFP_KERNEL);
 	if (!kbuf)
 		return -ENOMEM;
 
@@ -271,7 +271,7 @@ static ssize_t dbgfs_ctr_rd_fops(struct file *f, char __user *ubuf,
 
 	/* handle bounds checks, copy to user, offset advancement */
 	ret = simple_read_from_buffer(ubuf, size, offp, kbuf, kbuf_avail);
-	kzfree(kbuf);
+	kfree(kbuf);
 
 	return ret;
 }
