@@ -20,6 +20,9 @@
 #define IOCLT_SERIAL_GET_COUNTER 1
 #define SERIAL_BUFSIZE 8
 
+/* enables pr_debug() lines */
+#define DEBUG
+
 /*******************************************************************************
 * DATA STRUCTURES
 *******************************************************************************/
@@ -338,7 +341,7 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 		 * failure of the syscall.
 		 */
 		if (uart_char_read_block(priv, &c)) {
-			pr_alert("Aborting Syscall due to userland signal!\n");
+			pr_debug("Aborting Syscall due to userland signal!\n");
 			return -EINTR;
 		}
 
@@ -409,7 +412,7 @@ int platform_pm_suspend(struct device *dev)
 {
 	struct platform_device *pdev;
 
-	pr_alert("%s called!\n", __func__);
+	pr_debug("%s called!\n", __func__);
 
 	pdev = to_platform_device(dev);
 	deinit_uart(pdev);
@@ -421,7 +424,7 @@ int platform_pm_resume(struct device *dev)
 {
 	struct platform_device *pdev;
 
-	pr_alert("%s called!\n", __func__);
+	pr_debug("%s called!\n", __func__);
 
 	pdev = to_platform_device(dev);
 	init_uart(pdev);
@@ -431,7 +434,7 @@ int platform_pm_resume(struct device *dev)
 
 int platform_pm_idle(struct device *dev)
 {
-	pr_alert("%s called!\n", __func__);
+	pr_debug("%s called!\n", __func__);
 	// TODO: idle the UART unit
 	return 0;
 }
@@ -445,7 +448,7 @@ static int serial_probe(struct platform_device *pdev)
 	struct resource *res;
 	priv_serial_dev_t *priv;
 
-	pr_alert("%s: Base = 0x%x\n", __func__, (int)THIS_MODULE->core_layout.base);
+	pr_debug("%s: Base = 0x%x\n", __func__, (int)THIS_MODULE->core_layout.base);
 
 	/**
 	 * start addr (base addr) of the memory mapped UART Registers
@@ -513,10 +516,10 @@ static int serial_probe(struct platform_device *pdev)
 	 *  # involve remuxing pins.  Device drivers should call this function
 	 *  # indirectly via pm_runtime_get*().
 	 */
-	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
+	pr_debug("Pstate: %d\n", pdev->dev.power.runtime_status);
 	pm_runtime_enable(&pdev->dev);
 	pm_runtime_get_sync(&pdev->dev); /* get reference, resume and sync */
-	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
+	pr_debug("Pstate: %d\n", pdev->dev.power.runtime_status);
 
 	return 0;
 
@@ -552,13 +555,13 @@ static int serial_remove(struct platform_device *pdev)
 {
 	priv_serial_dev_t *priv;
 
-	pr_info("Called serial_remove\n");
+	pr_debug("Called serial_remove\n");
 
 	/* power management */
-	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
+	pr_debug("Pstate: %d\n", pdev->dev.power.runtime_status);
 	pm_runtime_put_sync(&pdev->dev); /* put reference, idle request and sync (Devices with references held cannot be suspended) */
 	pm_runtime_disable(&pdev->dev);
-	pr_info("Pstate: %d\n", pdev->dev.power.runtime_status);
+	pr_debug("Pstate: %d\n", pdev->dev.power.runtime_status);
 
 	/* misc drv */
 	priv = platform_get_drvdata(pdev);
