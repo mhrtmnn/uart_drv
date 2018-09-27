@@ -116,22 +116,6 @@ void circ_buf_insert(priv_serial_dev_t *dev, char c)
 
 /********************************** char R/W **********************************/
 
-/* non blocking read */
-static char uart_char_read(priv_serial_dev_t *dev)
-{
-	char c;
-
-	// TODO Locking
-	if (!circ_buf_isempty(dev)) {
-		/* there is at least one char in the buffer */
-		c = circ_buf_read(dev);
-	} else {
-		c = '\0';
-	}
-
-	return c;
-}
-
 /* blocking read, wait until buffer is nonempty */
 static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
 {
@@ -313,8 +297,8 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 		 * failure of the syscall.
 		 */
 		if (uart_char_read_block(priv, &c)) {
-			pr_alert("Restarting Syscall after userland signal!\n");
-			return -ERESTARTSYS;
+			pr_alert("Aborting Syscall due to userland signal!\n");
+			return -EINTR;
 		}
 
 		/* echo back */
