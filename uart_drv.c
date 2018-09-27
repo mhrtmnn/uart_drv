@@ -278,6 +278,13 @@ ssize_t f_uart_write(struct file *f, const char *buffer, size_t count, loff_t *p
 	return count;
 }
 
+/**
+ * Read 'count' many chars at once, i.e. block until 'count' chars were read.
+ * If 'cat' should be used on the device file, do not use it
+ * (Since cat wants to read PAGE_SIZE (4096) chars per call).
+ * In this case, one byte is read per syscall and the 'off' value is not changed
+ */
+#define BUFFERED_IO 0
 ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 {
 	int i;
@@ -290,7 +297,11 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 
 	/* read charwise and copy to userspace buffer */
 	i = 0;
-	while (i + (*off) < count) {
+
+#if BUFFERED_IO
+	while (i + (*off) < count)
+#endif
+	{
 
 		/**
 		 * Assuming an Interruption of userspace application due to signal
@@ -320,8 +331,10 @@ ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 			return -EFAULT;
 	}
 
+#if BUFFERED_IO
 	/* advance offset by number of read bytes */
 	(*off) += i;
+#endif
 
 	return i;
 }
