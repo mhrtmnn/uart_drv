@@ -144,22 +144,32 @@ static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
 
 	/**
 	 * The process is put to sleep (TASK_INTERRUPTIBLE) until the condition
-	 * evaluates to true or a signal is received. The condition is checked
-	 * each time the waitqueue wq is woken up. Thus, wake_up has to be
-	 * called after changing any variable that could change the result of
-	 * the wait condition.
+	 * evaluates to true or a signal is received. The condition is checked each
+	 * time the waitqueue wq is woken up.
 	 *
-	 * The function will return -ERESTARTSYS if it was interrupted by a
-	 * signal and 0 if condition evaluated to true.
+	 * It must be called with wq.lock being held. This spinlock is unlocked
+	 * while sleeping but condition testing is done while lock is held and
+	 * when this macro exits the lock is held.
+	 *
+	 * The lock is locked/unlocked using spin_lock_irq/spin_unlock_irq
+	 * functions which must match the way they are locked/unlocked
+	 * outside of this macro.
+	 *
+	 * wake_up_locked has to be called after changing any variable that
+	 * could change the result of the wait condition.
+	 *
+	 * The function will return -ERESTARTSYS if it was interrupted by a signal
+	 * and 0 if condition evaluated to true.
 	 */
-	ret = wait_event_interruptible(dev->tx_wq, !circ_buf_isempty(dev));
-	if (ret)
-		return ret;
+	spin_lock_irq(&dev->tx_wq.lock);
 
-	/* there is at least one char in the buffer */
-	*c = circ_buf_read(dev);
+	ret = wait_event_interruptible_locked_irq(dev->tx_wq, !circ_buf_isempty(dev));
+	if (ret == 0)
+		*c = circ_buf_read(dev); /* at least one char in the buffer */
 
-	return 0;
+	spin_unlock_irq(&dev->tx_wq.lock);
+
+	return ret;
 }
 
 static void uart_char_write(priv_serial_dev_t *dev, char c)
@@ -229,6 +239,7 @@ static void deinit_uart(struct platform_device *pdev)
 irqreturn_t uart_int_handler(int irq, void *dev_id)
 {
 	int ret;
+	unsigned long flags;
 	struct platform_device *pdev = dev_id;
 	priv_serial_dev_t *priv = platform_get_drvdata(pdev);
 
@@ -236,10 +247,12 @@ irqreturn_t uart_int_handler(int irq, void *dev_id)
 	if (reg_read(priv, UART_LSR) & UART_LSR_DR) {
 		char c = reg_read(priv, UART_RX);
 
+		spin_lock_irqsave(&priv->tx_wq.lock, flags);
 		circ_buf_insert(priv, c);
+		spin_unlock_irqrestore(&priv->tx_wq.lock, flags);
 
 		/* signal availability of new data to waiting processes */
-		wake_up(&priv->tx_wq);
+		wake_up_locked(&priv->tx_wq);
 
 		ret = IRQ_HANDLED;
 	} else {
@@ -287,7 +300,7 @@ ssize_t f_uart_write(struct file *f, const char *buffer, size_t count, loff_t *p
  * (Since cat wants to read PAGE_SIZE (4096) chars per call).
  * In this case, one byte is read per syscall and the 'off' value is not changed
  */
-#define BUFFERED_IO 0
+#define BUFFERED_IO 1
 ssize_t f_uart_read(struct file *f, char *buffer, size_t count, loff_t *off)
 {
 	int i;
@@ -459,6 +472,9 @@ static int serial_probe(struct platform_device *pdev)
 	priv->miscdev.name 	= devm_kasprintf(&pdev->dev, GFP_KERNEL, "serial-%x", res->start); /* allocate buffer and print to it */
 	init_waitqueue_head(&priv->tx_wq);
 
+	/* synchronisation of register accesses */
+	spin_lock_init(&priv->reg_lock);
+
 	ret = misc_register(&priv->miscdev);
 	if (ret)
 		goto misc_reg_err;
@@ -475,12 +491,6 @@ static int serial_probe(struct platform_device *pdev)
 						   "uart_int_handler", pdev);
 	if (ret)
 		goto request_irq_err;
-
-	/**
-	 * synchronisation
-	 */
-	spin_lock_init(&priv->reg_lock);
-
 
 	/**
 	 * Power management:
