@@ -142,21 +142,19 @@ static int uart_char_read_block(priv_serial_dev_t *dev, char *c)
 {
 	int ret;
 
-	if (circ_buf_isempty(dev)) {
-		/**
-		 * The process is put to sleep (TASK_INTERRUPTIBLE) until the condition
-		 * evaluates to true or a signal is received. The condition is checked
-		 * each time the waitqueue wq is woken up. Thus, wake_up has to be
-		 * called after changing any variable that could change the result of
-		 * the wait condition.
-		 *
-		 * The function will return -ERESTARTSYS if it was interrupted by a
-		 * signal and 0 if condition evaluated to true.
-		 */
-		ret = wait_event_interruptible(dev->tx_wq, !circ_buf_isempty(dev));
-		if (ret)
-			return ret;
-	}
+	/**
+	 * The process is put to sleep (TASK_INTERRUPTIBLE) until the condition
+	 * evaluates to true or a signal is received. The condition is checked
+	 * each time the waitqueue wq is woken up. Thus, wake_up has to be
+	 * called after changing any variable that could change the result of
+	 * the wait condition.
+	 *
+	 * The function will return -ERESTARTSYS if it was interrupted by a
+	 * signal and 0 if condition evaluated to true.
+	 */
+	ret = wait_event_interruptible(dev->tx_wq, !circ_buf_isempty(dev));
+	if (ret)
+		return ret;
 
 	/* there is at least one char in the buffer */
 	*c = circ_buf_read(dev);
