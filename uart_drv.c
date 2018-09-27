@@ -278,12 +278,52 @@ static ssize_t dbgfs_ctr_rd_fops(struct file *f, char __user *ubuf,
 	return ret;
 }
 
+static ssize_t dbgfs_ctr_wr_fops(struct file *f,
+								 const char __user *ubuf,
+								 size_t size, loff_t *offp)
+{
+	int ret;
+	char *kbuf;
+	struct platform_device *pdev = f->private_data;
+	priv_serial_dev_t *priv = platform_get_drvdata(pdev);
+
+	kbuf = kmalloc(size + 1, GFP_KERNEL);
+	if (!kbuf)
+		return -ENOMEM;
+
+	/* the number of bytes written is returned on success */
+	ret = simple_write_to_buffer(kbuf, size, offp, ubuf, size);
+	if (ret != size) {
+		kfree(kbuf);
+		if (ret < 0)
+			/* an error occurred */
+			return ret;
+		if (ret >= 0)
+			/* not all data was copied to kspace */
+			return -EIO;
+	}
+
+	kbuf[size] = '\0';
+	ret = strcmp(kbuf, "reset\n");
+	kfree(kbuf);
+
+	if (ret == 0) {
+		priv->num_sent_char = 0;
+		dev_err(&pdev->dev, "Counter reset!\n");
+	} else {
+		dev_err(&pdev->dev, "Unknown command!\n");
+		return -EINVAL;
+	}
+
+	return size;
+}
 
 /****************************** driver structures *****************************/
 
 static const struct file_operations ser_counter_dbg_fops = {
 	.open  = simple_open, /* only does: file->private_data = inode->i_private */
 	.read  = dbgfs_ctr_rd_fops,
+	.write = dbgfs_ctr_wr_fops,
 };
 
 /*******************************************************************************
