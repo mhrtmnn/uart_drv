@@ -258,7 +258,8 @@ static ssize_t dbgfs_ctr_rd_fops(struct file *f, char __user *ubuf,
 	int ret, kbuf_avail;
 	char *kbuf;
 	size_t kbuf_size;
-	priv_serial_dev_t *priv = f->private_data;
+	struct platform_device *pdev = f->private_data;
+	priv_serial_dev_t *priv = platform_get_drvdata(pdev);
 
 	/* return minimum of two values, using the specified type */
 	kbuf_size = min_t(size_t, size, 256);
@@ -574,7 +575,7 @@ static int serial_probe(struct platform_device *pdev)
 	 * - everybody can read (S_IRUGO = read_{usr, grp, other})
 	 * - data will be stored in the i_private field of resulting inode structure
 	 */
-	debugfs_create_file("counter", S_IRUGO, dent, priv, &ser_counter_dbg_fops);
+	debugfs_create_file("counter", S_IRUGO, dent, pdev, &ser_counter_dbg_fops);
 	priv->dbgfs_dentry = dent;
 
 	return 0;
