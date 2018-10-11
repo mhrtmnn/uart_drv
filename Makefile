@@ -1,12 +1,12 @@
 -include cfg.local
 
-VERSION_TAG := \"$(shell git --git-dir=/home/marco/Documents/Projects/BBB/modules/uart_drv/.git rev-parse HEAD)\"
-EXTRA_CFLAGS += -D MOD_VER=$(VERSION_TAG) -Wall
-
 ARCHITECTURE := arm
 TOOLCHAIN := $(MY_TOOLCHAIN)
 COMPILER := $(MY_COMPILER)
 
+# MY_REPO_DIR needs to be exported
+VERSION_TAG := \"$(shell git --git-dir=$(MY_REPO_DIR) rev-parse HEAD)\"
+EXTRA_CFLAGS += -D MOD_VER=$(VERSION_TAG) -Wall
 PWD := $(shell pwd)
 
 modules:
