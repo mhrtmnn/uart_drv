@@ -6,7 +6,7 @@ Simple UART Driver that explores:
 - `Misc` Drivers (Character device `/dev/serial-481a8000`)
 - `ioctl` Syscalls
 
-The driver is part of the _BeagleBone Black_ [buildroot project].
+The driver is part of my experimental _BeagleBone Black_ [buildroot project].
 
 It was initially based on bootlin's [Linux kernel and driver development training].
 
